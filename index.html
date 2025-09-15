@@ -444,7 +444,7 @@
                     if (node && !node.empty()) node.data('message', val);
                 });
 
-                // apply to cy in batch, only changed edges updated/created
+                // apply to cy in batch
                 if (cy) {
                     cy.batch(() => {
                         edges.forEach(obj => {
@@ -588,10 +588,10 @@
         document.getElementById('startBtn').addEventListener('click', async () => {
             if (running) { log('Already running'); return; }
             const startName = document.getElementById('startInput').value.trim();
-            if (!startName) { alert('Введите имя стартовой вершины'); return; }
+            if (!startName) { alert('Enter the name of the start vertex'); return; }
             const power = Math.max(1, parseInt(document.getElementById('powerInput').value, 10) || 1);
             const startId = `v:${startName}`;
-            if (!lastIndices || !lastIndices.outAdj.has(startId)) { alert('Start vertex не найден в графе: ' + startName); return; }
+            if (!lastIndices || !lastIndices.outAdj.has(startId)) { alert('Start vertex not found: ' + startName); return; }
             currentController = new AbortController();
             running = true;
             log(`Starting traversal from ${startId} with power=${power}`);
