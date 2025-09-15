@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ru">
+
+<head>
+    <meta charset="utf-8" />
+    <title>HG Router&Flooder</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <script src="https://unpkg.com/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
+    <style>
+        :root {
+            --gamma-bg: #000000;
+            --gamma-surface: #29151b;
+            --gamma-edge-line: #3a1f28;
+            --gamma-vertex: #92b84a;
+            --gamma-hyperedge: #c5c5c5;
+            --gamma-visit-vertex: #c4e586;
+            --gamma-visit-hyperedge: #ffd9c0;
+            --gamma-text: #f2e7e5;
+            --gamma-muted: #c7a6a1;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            background: var(--gamma-bg);
+            color: var(--gamma-text);
+            font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+        }
+
+        body {
+            display: flex;
+            overflow: hidden;
+        }
+
+        #sidebar {
+            width: 360px;
+            padding: 14px;
+            box-sizing: border-box;
+            background: var(--gamma-surface);
+            border-right: 1px solid rgba(255, 255, 255, 0.03);
+            overflow: auto
+        }
+
+        #canvas {
+            flex: 1;
+            display: flex;
+            flex-direction: column
+        }
+
+        #cy {
+            flex: 1;
+            background: transparent
+        }
+
+        h2 {
+            margin: 0 0 12px 0;
+            font-size: 16px;
+            color: var(--gamma-text)
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px
+        }
+
+        button {
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--gamma-text);
+            cursor: pointer
+        }
+
+        button:active {
+            transform: translateY(1px)
+        }
+
+        input[type="text"],
+        input[type="number"],
+        textarea {
+            width: 100%;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            background: rgba(255, 255, 255, 0.015);
+            color: var(--gamma-text);
+            box-sizing: border-box
+        }
+
+        label {
+            font-size: 13px;
+            margin-top: 8px;
+            display: block;
+            color: var(--gamma-text)
+        }
+
+        pre {
+            background: transparent;
+            padding: 8px;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow: auto;
+            font-size: 12px;
+            color: var(--gamma-text);
+            border: 1px solid rgba(255, 255, 255, 0.02)
+        }
+
+        #editor {
+            margin-top: 12px;
+            padding: 8px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.01);
+            border: 1px solid rgba(255, 255, 255, 0.02);
+            max-height: 300px;
+            overflow: auto
+        }
+
+        .edge-editor-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px dashed rgba(255, 255, 255, 0.02)
+        }
+
+        .edge-editor-row:last-child {
+            border-bottom: none
+        }
+
+        .legend {
+            font-size: 13px;
+            margin-top: 8px;
+            color: var(--gamma-muted)
+        }
+
+        .log {
+            margin-top: 10px;
+            background: transparent;
+            color: var(--gamma-text);
+            padding: 8px;
+            border-radius: 8px;
+            max-height: 160px;
+            overflow: auto;
+            font-family: monospace;
+            font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.02)
+        }
+
+        .muted {
+            color: rgba(191, 255, 207, 0.45)
+        }
+
+        @media (max-width:800px) {
+            #sidebar {
+                width: 100%;
+                height: 46vh;
+                border-right: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.02)
+            }
+
+            body {
+                flex-direction: column
+            }
+
+            #canvas {
+                height: 54vh
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="sidebar">
+        <h2>HG Router&Flooder</h2>
+
+        <div class="controls">
+            <button id="startBtn">Start</button>
+            <button id="stopBtn">Stop</button>
+            <button id="resetBtn">Reset</button>
+        </div>
+
+        <label>Start vertex (name)</label>
+        <input id="startInput" type="text" value="A1" />
+
+        <label>Power (integer)</label>
+        <input id="powerInput" type="number" value="6" min="1" />
+
+        <label>Default delay (ms)</label>
+        <input id="delayInput" type="number" value="250" min="10" />
+
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.02);margin:10px 0" />
+
+        <strong>Editor</strong>
+        <div id="editor">Click on the graph element to edit it.</div>
+
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.02);margin:10px 0" />
+
+        <strong style="color:var(--gamma-text)">EdgeJSON / VertexJSON</strong>
+        <pre id="edgePre"></pre>
+
+        <strong style="color:var(--gamma-text)">Log</strong>
+        <div id="log" class="log"></div>
+    </div>
+
+    <div id="canvas">
+        <div id="cy"></div>
+    </div>
+
+    <script>
+        const css = getComputedStyle(document.documentElement);
+        const PALETTE = {
+            bg: css.getPropertyValue('--gamma-bg').trim(),
+            surface: css.getPropertyValue('--gamma-surface').trim(),
+            edgeLine: css.getPropertyValue('--gamma-edge-line').trim(),
+            vertex: css.getPropertyValue('--gamma-vertex').trim(),
+            hyperedge: css.getPropertyValue('--gamma-hyperedge').trim(),
+            visitVertex: css.getPropertyValue('--gamma-visit-vertex').trim(),
+            visitHyper: css.getPropertyValue('--gamma-visit-hyperedge').trim(),
+            text: css.getPropertyValue('--gamma-text').trim(),
+            muted: css.getPropertyValue('--gamma-muted').trim()
+        };
+
+        let rawHypergraph = {
+                hypergraph: [
+                    { vertices: ['A', 'B', 'C'] },
+                    { vertices: ['C', 'D', 'F'] },
+                    { vertices: ['B', 'E', 'F', 'C'] },
+                    { vertices: ['G', 'H', 'I'] },
+                    { vertices: ['G', 'L', 'Y', 'E', 'F'] },
+                    { vertices: ['T', 'Y', 'E', 'B']},
+                    { vertices: ['C', 'H', 'R']},
+                    { vertices: ['D', 'O', 'I']},
+                    { vertices: ['I', 'M']},
+                    { vertices: ['M', 'N', 'G']},
+                    { vertices: ['N', 'I']},
+                    { vertices: ['M', 'R', 'O']},
+                ]
+            }
+
+        let DEFAULT_DELAY = 250;
+        let edges = [];
+        let verticesMap = new Map();
+        let lastIndices = null;
+        let cy = null;
+
+        function convertRawToEdgeVertex(raw, defaultDelay = DEFAULT_DELAY) {
+            const resultEdges = [];
+            const vmap = new Map();
+            raw.hypergraph.forEach((edgeObj, idx) => {
+                const edgeName = `e${idx}`;
+                const verticesArr = [];
+                edgeObj.vertices.forEach(vName => {
+                    if (!vmap.has(vName)) vmap.set(vName, { message: '' });
+                    verticesArr.push({ [vName]: { isEntrance: false, delay: defaultDelay } });
+                });
+                resultEdges.push({ [edgeName]: { vertices: verticesArr } });
+            });
+            const vertexArr = Array.from(vmap.entries()).map(([name, val]) => ({ [name]: { message: val.message } }));
+            return { edges: resultEdges, vertices: vertexArr, verticesMap: vmap };
+        }
+
+        function buildIndicesFromEdges(edgesList) {
+            const outAdj = new Map();
+            const vset = new Set();
+            const eset = new Set();
+            edgesList.forEach(obj => {
+                const edgeName = Object.keys(obj)[0];
+                eset.add(edgeName);
+                const vlist = obj[edgeName].vertices;
+                vlist.forEach(vobj => {
+                    const vName = Object.keys(vobj)[0];
+                    const cfg = vobj[vName];
+                    vset.add(vName);
+                    const delay = (cfg && typeof cfg.delay === 'number') ? cfg.delay : DEFAULT_DELAY;
+                    const isEntrance = !!cfg.isEntrance;
+                    if (isEntrance) {
+                        const key = `v:${vName}`;
+                        const arr = outAdj.get(key) || [];
+                        arr.push({ to: `h:${edgeName}`, delay });
+                        outAdj.set(key, arr);
+                    } else {
+                        const key = `h:${edgeName}`;
+                        const arr = outAdj.get(key) || [];
+                        arr.push({ to: `v:${vName}`, delay });
+                        outAdj.set(key, arr);
+                    }
+                });
+            });
+            vset.forEach(v => { if (!outAdj.has(`v:${v}`)) outAdj.set(`v:${v}`, []) });
+            eset.forEach(e => { if (!outAdj.has(`h:${e}`)) outAdj.set(`h:${e}`, []) });
+            return { outAdj };
+        }
+
+        function buildCyElementsFromEdges(edgesList, verticesMapLocal) {
+            const eles = [];
+            Array.from(verticesMapLocal.keys()).forEach(vName => {
+                eles.push({ data: { id: `v:${vName}`, label: vName, kind: 'vertex', name: vName, message: verticesMapLocal.get(vName).message || '' } });
+            });
+            edgesList.forEach(obj => {
+                const edgeName = Object.keys(obj)[0];
+                eles.push({ data: { id: `h:${edgeName}`, label: edgeName, kind: 'hyperedge', edgeName } });
+                const vlist = obj[edgeName].vertices;
+                vlist.forEach(vobj => {
+                    const vName = Object.keys(vobj)[0];
+                    const cfg = vobj[vName];
+                    const isEntrance = !!cfg.isEntrance;
+                    const delay = (cfg && typeof cfg.delay === 'number') ? cfg.delay : DEFAULT_DELAY;
+                    const edgeId = `e:${edgeName}:${vName}`;
+                    const source = isEntrance ? `v:${vName}` : `h:${edgeName}`;
+                    const target = isEntrance ? `h:${edgeName}` : `v:${vName}`;
+                    eles.push({ data: { id: edgeId, source, target, kind: 'dir', delay } });
+                });
+            });
+            return eles;
+        }
+
+        function initCy(elements) {
+            if (cy) {
+                const posMap = {};
+                cy.nodes().forEach(n => { posMap[n.id()] = n.position(); });
+                cy.destroy(); cy = null;
+                elements.forEach(el => { if (el.data && posMap[el.data.id]) el.position = posMap[el.data.id]; });
+            }
+
+            cy = cytoscape({
+                container: document.getElementById('cy'),
+                elements,
+                style: [
+                    // vertices
+                    {
+                        selector: 'node[kind="vertex"]', style: {
+                            'background-color': PALETTE.vertex,
+                            'label': 'data(label)',
+                            'color': PALETTE.surface,
+                            'text-valign': 'center', 'text-halign': 'center',
+                            'width': 36, 'height': 36, 'font-size': 11
+                        }
+                    },
+                    // hyperedge
+                    {
+                        selector: 'node[kind="hyperedge"]', style: {
+                            'background-color': PALETTE.hyperedge,
+                            'label': 'data(label)', 'shape': 'roundrectangle', 'width': 76, 'height': 34, 'font-size': 11, 'text-valign': 'center',
+                            'color': PALETTE.surface
+                        }
+                    },
+                    // edges
+                    {
+                        selector: 'edge[kind="dir"]', style: {
+                            'line-color': PALETTE.edgeLine,
+                            'width': 2, 'curve-style': 'bezier',
+                            'target-arrow-shape': 'triangle', 'target-arrow-color': PALETTE.edgeLine
+                        }
+                    },
+                    // visiting states
+                    {
+                        selector: '.visiting-vertex', style: {
+                            'background-color': PALETTE.visitVertex, 'width': 52, 'height': 52, 'transition-property': 'background-color,width,height', 'transition-duration': '120ms'
+                        }
+                    },
+                    {
+                        selector: '.visiting-hyperedge', style: {
+                            'background-color': PALETTE.visitHyper, 'width': 86, 'height': 44, 'transition-property': 'background-color,width,height', 'transition-duration': '120ms'
+                        }
+                    },
+                    // generic node font
+                    { selector: 'node', style: { 'font-family': 'Inter,system-ui,Arial', 'text-outline-width': 0 } }
+                ],
+                layout: { name: 'cose', animate: true, idealEdgeLength: 80, nodeOverlap: 12 }
+            });
+
+            cy.on('tap', 'node[kind="vertex"]', evt => {
+                const name = evt.target.data('name');
+                document.getElementById('startInput').value = name;
+                openVertexEditor(name);
+            });
+
+            cy.on('tap', 'node[kind="hyperedge"]', evt => {
+                const edgeName = evt.target.data('edgeName');
+                openEdgeEditor(edgeName);
+            });
+        }
+
+        const editorDiv = document.getElementById('editor');
+
+        function openEdgeEditor(edgeName) {
+            const edgeObj = edges.find(o => Object.keys(o)[0] === edgeName);
+            if (!edgeObj) { editorDiv.innerHTML = `<em class="muted">Edge ${edgeName} not found</em>`; return; }
+            const vlist = edgeObj[edgeName].vertices;
+            let html = `<div style="font-weight:600;margin-bottom:8px;color:${PALETTE.text}">Edit ${edgeName}</div>`;
+            vlist.forEach(vobj => {
+                const vName = Object.keys(vobj)[0];
+                const cfg = vobj[vName];
+                const msgVal = escapeHtml(verticesMap.get(vName).message || '');
+                html += `<div class="edge-editor-row">
+      <div style="flex:1">
+        <label style="display:block;font-weight:600;color:${PALETTE.text}">${vName}</label>
+        <label style="font-size:12px;color:${PALETTE.muted}">
+          <input type="checkbox" data-edge="${edgeName}" data-v="${vName}" class="isEntrance" ${cfg.isEntrance ? 'checked' : ''}/> isEntrance
+        </label>
+        <div style="margin-top:6px">
+          <label style="font-size:12px;color:${PALETTE.muted}">vertex message</label>
+          <input type="text" data-v="${vName}" data-edge="${edgeName}" class="msgInput" value="${msgVal}" />
+        </div>
+      </div>
+      <div style="width:110px;">
+        <label style="display:block;font-size:12px;color:${PALETTE.muted}">delay (ms)</label>
+        <input type="number" min="10" value="${cfg.delay}" data-edge="${edgeName}" data-v="${vName}" class="delayInput" style="width:100%"/>
+      </div>
+    </div>`;
+            });
+            html += `<div style="margin-top:8px;display:flex;gap:8px;"><button id="saveEdgeBtn">Save</button><button id="cancelEdgeBtn">Cancel</button></div>`;
+            editorDiv.innerHTML = html;
+
+            editorDiv.querySelector('#cancelEdgeBtn').addEventListener('click', () => { editorDiv.innerHTML = `<em class="muted">Edit canceled</em>`; });
+
+            editorDiv.querySelector('#saveEdgeBtn').addEventListener('click', () => {
+                // collect fields -> apply in-place
+                const checks = editorDiv.querySelectorAll('.isEntrance');
+                checks.forEach(chk => {
+                    const v = chk.dataset.v, e = chk.dataset.edge;
+                    const eo = edges.find(o => Object.keys(o)[0] === e);
+                    const ventry = eo[e].vertices.find(vobj => Object.keys(vobj)[0] === v);
+                    ventry[v].isEntrance = chk.checked;
+                });
+                const delays = editorDiv.querySelectorAll('.delayInput');
+                delays.forEach(inp => {
+                    const v = inp.dataset.v, e = inp.dataset.edge;
+                    const eo = edges.find(o => Object.keys(o)[0] === e);
+                    const ventry = eo[e].vertices.find(vobj => Object.keys(vobj)[0] === v);
+                    const value = parseInt(inp.value, 10);
+                    ventry[v].delay = Number.isFinite(value) && value > 0 ? value : DEFAULT_DELAY;
+                });
+                const msgs = editorDiv.querySelectorAll('.msgInput');
+                msgs.forEach(inp => {
+                    const v = inp.dataset.v;
+                    const val = inp.value || '';
+                    verticesMap.get(v).message = val;
+                    const node = cy.$id(`v:${v}`);
+                    if (node && !node.empty()) node.data('message', val);
+                });
+
+                // apply to cy in batch, only changed edges updated/created
+                if (cy) {
+                    cy.batch(() => {
+                        edges.forEach(obj => {
+                            const edgeName = Object.keys(obj)[0];
+                            obj[edgeName].vertices.forEach(vobj => {
+                                const vName = Object.keys(vobj)[0];
+                                const cfg = vobj[vName];
+                                const isEntrance = !!cfg.isEntrance;
+                                const delay = (typeof cfg.delay === 'number') ? cfg.delay : DEFAULT_DELAY;
+                                const edgeId = `e:${edgeName}:${vName}`;
+                                const desiredSource = isEntrance ? `v:${vName}` : `h:${edgeName}`;
+                                const desiredTarget = isEntrance ? `h:${edgeName}` : `v:${vName}`;
+                                const existing = cy.$id(edgeId);
+                                if (existing && !existing.empty()) {
+                                    const curSource = existing.data('source'), curTarget = existing.data('target');
+                                    if (curSource !== desiredSource || curTarget !== desiredTarget) {
+                                        existing.remove();
+                                        cy.add({ group: 'edges', data: { id: edgeId, source: desiredSource, target: desiredTarget, kind: 'dir', delay } });
+                                    } else {
+                                        existing.data('delay', delay);
+                                    }
+                                } else {
+                                    cy.add({ group: 'edges', data: { id: edgeId, source: desiredSource, target: desiredTarget, kind: 'dir', delay } });
+                                }
+                            });
+                        });
+                    });
+                }
+
+                lastIndices = buildIndicesFromEdges(edges);
+                updateJsonPanel();
+                editorDiv.innerHTML = `<div style="color:${PALETTE.text}">Saved (in-place)</div>`;
+                log(`Saved edge ${edgeName} (in-place)`);
+            });
+        }
+
+        /* -------- vertex editor (in-place message) -------- */
+        function openVertexEditor(vName) {
+            const message = verticesMap.get(vName).message || '';
+            let html = `<div style="font-weight:600;color:${PALETTE.text};margin-bottom:8px">Edit ${vName}</div>`;
+            html += `<label style="color:${PALETTE.muted}">Message</label>`;
+            html += `<textarea id="vertexMessage" rows="3" style="width:100%">${escapeHtml(message)}</textarea>`;
+            html += `<div style="margin-top:8px"><button id="saveVertexBtn">Save</button> <button id="cancelVertexBtn">Cancel</button></div>`;
+            editorDiv.innerHTML = html;
+            editorDiv.querySelector('#cancelVertexBtn').addEventListener('click', () => editorDiv.innerHTML = `<em class="muted">Edit canceled</em>`);
+            editorDiv.querySelector('#saveVertexBtn').addEventListener('click', () => {
+                const val = editorDiv.querySelector('#vertexMessage').value || '';
+                verticesMap.get(vName).message = val;
+                const node = cy.$id(`v:${vName}`);
+                if (node && !node.empty()) node.data('message', val);
+                updateJsonPanel();
+                editorDiv.innerHTML = `<div style="color:${PALETTE.text}">Vertex message saved</div>`;
+                log(`Vertex ${vName} message updated.`);
+            });
+        }
+
+        /* -------- flooder (delay/travel/traverse directed) -------- */
+        function delayMs(ms, signal) {
+            return new Promise((resolve, reject) => {
+                if (signal && signal.aborted) return reject(new Error('aborted'));
+                const t = setTimeout(() => { cleanup(); resolve() }, ms);
+                function onAbort() { cleanup(); reject(new Error('aborted')) }
+                function cleanup() { clearTimeout(t); if (signal) signal.removeEventListener('abort', onAbort) }
+                if (signal) signal.addEventListener('abort', onAbort);
+            });
+        }
+
+        async function travel(fromId, toId, delay, visitCb, signal) {
+                const kind = toId.startsWith('v:') ? 'vertex' : 'hyperedge';
+
+                const effectiveDelay = kind === 'hyperedge' ? 0 : delay;
+
+                await delayMs(effectiveDelay, signal);
+                visitCb && visitCb(toId, kind, 'enter');
+
+                if (effectiveDelay > 0) {
+                    await delayMs(50, signal);
+                }
+                visitCb && visitCb(toId, kind, 'exit');
+            }
+
+
+        async function traverseDirected(startId, power, indices, visitCb, signal) {
+            if (power <= 0) return;
+            if (signal && signal.aborted) throw new Error('aborted');
+            const outAdj = indices.outAdj;
+            const neighbors = outAdj.get(startId) || [];
+            if (!neighbors || neighbors.length === 0) return;
+            const powerPerConnection = Math.max(1, Math.floor(power / neighbors.length));
+            await Promise.all(neighbors.map(async ({ to, delay }) => {
+                await travel(startId, to, delay, visitCb, signal);
+                await traverseDirected(to, powerPerConnection - 1, indices, visitCb, signal);
+            }));
+        }
+
+        /* -------- visit callback + logging -------- */
+        const logDiv = document.getElementById('log');
+        function log(msg) { const time = new Date().toLocaleTimeString(); logDiv.textContent = `${time} ${msg}\n` + logDiv.textContent; }
+
+        function nodeVisitCallback(nodeId, kind, action) {
+            const node = cy.$id(nodeId);
+            if (!node || node.empty()) return;
+            if (action === 'enter') {
+                if (kind === 'vertex') {
+                    node.addClass('visiting-vertex');
+                    const msg = node.data('message');
+                    if (msg && msg.length) log(`[VISIT ${nodeId}] message: ${msg}`);
+                } else {
+                    node.addClass('visiting-hyperedge');
+                }
+                log(`[ENTER] ${nodeId}`);
+            } else {
+                if (kind === 'vertex') node.removeClass('visiting-vertex');
+                else node.removeClass('visiting-hyperedge');
+                log(`[EXIT] ${nodeId}`);
+            }
+        }
+
+        /* -------- json panel update -------- */
+        function updateJsonPanel() {
+            const vertexArr = Array.from(verticesMap.entries()).map(([k, v]) => ({ [k]: { message: v.message || '' } }));
+            document.getElementById('edgePre').textContent = JSON.stringify({ edges, vertices: vertexArr }, null, 2);
+        }
+
+        /* -------- initial build / reset (in-place ready) -------- */
+        function resetFromRaw() {
+            DEFAULT_DELAY = Number(document.getElementById('delayInput').value) || DEFAULT_DELAY;
+            const converted = convertRawToEdgeVertex(rawHypergraph, DEFAULT_DELAY);
+            edges = converted.edges;
+            verticesMap = new Map();
+            converted.vertices.forEach(vobj => { const name = Object.keys(vobj)[0]; verticesMap.set(name, { message: vobj[name].message || '' }); });
+            const elements = buildCyElementsFromEdges(edges, verticesMap);
+            initCy(elements);
+            lastIndices = buildIndicesFromEdges(edges);
+            updateJsonPanel();
+            log('Graph reset from rawHypergraph (in-place ready).');
+        }
+
+        /* -------- controls wiring -------- */
+        let currentController = null, running = false;
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            if (running) { log('Already running'); return; }
+            const startName = document.getElementById('startInput').value.trim();
+            if (!startName) { alert('Введите имя стартовой вершины'); return; }
+            const power = Math.max(1, parseInt(document.getElementById('powerInput').value, 10) || 1);
+            const startId = `v:${startName}`;
+            if (!lastIndices || !lastIndices.outAdj.has(startId)) { alert('Start vertex не найден в графе: ' + startName); return; }
+            currentController = new AbortController();
+            running = true;
+            log(`Starting traversal from ${startId} with power=${power}`);
+            try {
+                await traverseDirected(startId, power, lastIndices, nodeVisitCallback, currentController.signal);
+                log('Traversal finished normally');
+            } catch (e) {
+                log('Traversal stopped: ' + (e && e.message ? e.message : e));
+            } finally {
+                running = false;
+                currentController = null;
+            }
+        });
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            if (currentController) { currentController.abort(); log('Abort requested'); } else log('Nothing to stop');
+        });
+        document.getElementById('resetBtn').addEventListener('click', () => resetFromRaw());
+
+        /* -------- utility -------- */
+        function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": "&#39;" }[c])); }
+
+        /* -------- init -------- */
+        resetFromRaw();
+
+    </script>
+</body>
+
+</html>

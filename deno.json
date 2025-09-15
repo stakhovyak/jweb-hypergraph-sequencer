@@ -1,0 +1,13 @@
+{
+    "tasks": {
+        "dev": "deno run --watch --allow-read -allow-net --allow-write build.ts"
+    },
+    "compilerOptions": {
+        "lib": [
+            "dom",
+            "esnext",
+            "deno.ns"
+        ],
+        "strict": true
+    }
+}
