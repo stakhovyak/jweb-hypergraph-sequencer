@@ -34,3 +34,7 @@ deno run --allow-net -allow-read --watch serve.ts
 ## How to insert a custom graph?
 
 For that, you must fill up the `rawHypergraph` variable on 227 line
+
+## Why is the JSON logic so complex?
+
+Because the sequencer is meant to be used with the hypergraph generator from dpo-dsl-editor and DPO-DSL-MaxMsp that con be found among my repositories
